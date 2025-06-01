@@ -5,9 +5,9 @@ from tkinter import ttk
 from tkinter import PhotoImage
 
 class ToolTip:
-    def __init__(self, widget, text):
+    def __init__(self, widget, text_func):
         self.widget = widget
-        self.text = text
+        self.text_func = text_func  # Now accepts a function
         self.tooltip = None
         self.widget.bind("<Enter>", self.show_tooltip)
         self.widget.bind("<Leave>", self.hide_tooltip)
@@ -23,7 +23,7 @@ class ToolTip:
         
         label = tk.Label(
             self.tooltip, 
-            text=self.text, 
+            text=self.text_func(),  # Call the function to get current text
             justify='left',
             background="#ffffe0", 
             relief='solid', 
@@ -55,6 +55,12 @@ class Calculator:
         # Create display frame
         self.create_display()
         
+        # Set focus to display initially
+        self.display.focus_set()
+
+        # Make display not selectable
+        self.display.configure(insertwidth=0, highlightthickness=0)
+
         # Create buttons
         self.create_buttons()
         
@@ -96,7 +102,10 @@ class Calculator:
             font=('Arial', 18), 
             borderwidth=5, 
             justify='right',
-            bg='#f5f5f5'
+            bg='#f5f5f5',
+            highlightbackground='gray',
+            highlightcolor='gray',
+            highlightthickness=1
         )
         self.display.grid(row=0, column=0, columnspan=6, padx=10, pady=10, sticky="ew")
         
@@ -117,6 +126,9 @@ class Calculator:
         )
         self.history_display.grid(row=2, column=0, columnspan=6, padx=10, pady=5, sticky="ew")
         
+        # Allow history display to receive focus but pass keys to root
+        self.history_display.bind('<Key>', lambda e: self.root.focus_set())
+
         # Mode indicator
         self.mode_label = tk.Label(
             self.root,
@@ -221,10 +233,15 @@ class Calculator:
                 relief=tk.RIDGE,
                 borderwidth=2
             )
+
+            if text in ['sin', 'cos', 'tan']:
+                # Use lambda to capture current mode
+                tooltip_func = lambda t=text: f"{t} - Current mode: {self.trig_mode.upper()}"
+                setattr(self, f'{text}_tooltip', ToolTip(btn, tooltip_func))
+            else:
+                setattr(self, f'{text}_tooltip', ToolTip(btn, lambda t=tooltip_text: t))
+
             btn.grid(row=row, column=col, sticky="nsew")
-            
-            # Add tooltip
-            ToolTip(btn, tooltip_text)
     
     def configure_grid(self):
         # Configure row and column weights
@@ -237,21 +254,22 @@ class Calculator:
         # Number keys
         for num in range(10):
             self.root.bind(str(num), lambda event, n=str(num): self.on_button_click(n))
+            self.display.bind(str(num), lambda event, n=str(num): self.on_button_click(n))
         
-        # Operation keys
+        # Operation keys - use keysym instead of keycode for better compatibility
         key_mappings = {
-            '<plus>': '+',
-            '<minus>': '-',
-            '<asterisk>': '*',
-            '<slash>': '/',
-            '<Return>': '=',
-            '<BackSpace>': '⌫',
-            '<Escape>': 'C',
-            '<period>': '.',
-            '<parenleft>': '(',
-            '<parenright>': ')',
-            '<asciicircum>': 'xʸ',
-            '<exclam>': 'n!',
+            'plus': '+',
+            'minus': '-',
+            'asterisk': '*',
+            'slash': '/',
+            'Return': '=',
+            'BackSpace': '⌫',
+            'Escape': 'C',
+            'period': '.',
+            'parenleft': '(',
+            'parenright': ')',
+            'asciicircum': 'xʸ',
+            'exclam': 'n!',
             'm': 'Mod',
             's': 'sin',
             'c': 'cos',
@@ -261,14 +279,66 @@ class Calculator:
             'q': '√',
             'p': 'π',
             'e': 'eˣ',
-            'd': 'D/R'
+            'd': 'D/R',
+            'percent': 'Mod'
         }
         
         for key, value in key_mappings.items():
-            self.root.bind(key, lambda event, v=value: self.on_button_click(v))
+            self.root.bind(f'<{key}>', lambda event, v=value: self.on_button_click(v))
+            self.display.bind(f'<{key}>', lambda event, v=value: self.on_button_click(v))
         
-        # Prevent text entry directly into the display
-        self.display.bind('<Key>', lambda e: 'break')
+        # Numpad keys
+        numpad_mappings = {
+            'KP_Add': '+',
+            'KP_Subtract': '-',
+            'KP_Multiply': '*',
+            'KP_Divide': '/',
+            'KP_Enter': '=',
+            'KP_Decimal': '.',
+            'KP_0': '0',
+            'KP_1': '1',
+            'KP_2': '2',
+            'KP_3': '3',
+            'KP_4': '4',
+            'KP_5': '5',
+            'KP_6': '6',
+            'KP_7': '7',
+            'KP_8': '8',
+            'KP_9': '9'
+        }
+        
+        for key, value in numpad_mappings.items():
+            self.root.bind(f'<{key}>', lambda event, v=value: self.on_button_click(v))
+            self.display.bind(f'<{key}>', lambda event, v=value: self.on_button_click(v))
+        
+        # Memory operation shortcuts
+        mem_mappings = {
+            'Control-m': 'MC',
+            'Control-r': 'MR',
+            'Control-plus': 'M+',
+            'Control-minus': 'M-',
+            'Control-s': 'MS'
+        }
+        
+        for key, value in mem_mappings.items():
+            self.root.bind(f'<{key}>', lambda event, v=value: self.on_button_click(v))
+            self.display.bind(f'<{key}>', lambda event, v=value: self.on_button_click(v))
+        
+        # Handle focus properly
+        self.display.bind('<FocusIn>', self.handle_display_focus)
+        self.display.bind('<FocusOut>', self.handle_display_focus_out)
+        
+        # Set initial focus
+        self.display.focus_set()
+
+    def handle_display_focus(self, event=None):
+        # When display gets focus, ensure keyboard input works
+        self.display.configure(highlightbackground='blue', highlightcolor='blue')
+        self.root.focus_set()  # Keep root window focused for key bindings
+
+    def handle_display_focus_out(self, event=None):
+        # Visual feedback when display loses focus
+        self.display.configure(highlightbackground='gray', highlightcolor='gray')
     
     def on_button_click(self, button_text):
         current_display = self.display.get()
@@ -279,6 +349,22 @@ class Calculator:
             current_display = ""
 
         try:
+            # Handle function buttons with auto-completion
+            function_map = {
+                'sin': 'math.sin(',
+                'cos': 'math.cos(',
+                'tan': 'math.tan(',
+                'log': 'math.log10(',
+                'ln': 'math.log(',
+                '√': 'math.sqrt(',
+                'eˣ': 'math.exp(',
+                '|x|': 'abs('
+            }
+            
+            if button_text in function_map:
+                self.display.insert(tk.END, function_map[button_text])
+                return
+                
             if button_text.isdigit() or button_text == '.':
                 self.handle_digit_or_decimal(button_text)
             elif button_text in ['+', '-', '*', '/', '(', ')']:
@@ -293,14 +379,7 @@ class Calculator:
                 self.toggle_sign()
             elif button_text in ['sin', 'cos', 'tan']:
                 self.handle_trig_function(button_text)
-            elif button_text == 'log':
-                self.display.insert(tk.END, 'log10(')
-            elif button_text == 'ln':
-                self.display.insert(tk.END, 'log(')
-            elif button_text == '√':
-                self.display.insert(tk.END, 'sqrt(')
             elif button_text == 'xʸ':
-                # Ensure proper syntax for power operation
                 if current_display and not current_display.strip().endswith(('+', '-', '*', '/', '(')):
                     self.display.insert(tk.END, '**')
                 else:
@@ -313,14 +392,10 @@ class Calculator:
                 self.display.insert(tk.END, '%')
             elif button_text == '10ˣ':
                 self.display.insert(tk.END, '10**')
-            elif button_text == 'eˣ':
-                self.display.insert(tk.END, 'math.exp(')
             elif button_text == 'x²':
                 self.display.insert(tk.END, '**2')
             elif button_text == '1/x':
                 self.handle_reciprocal()
-            elif button_text == '|x|':
-                self.display.insert(tk.END, 'abs(')
             elif button_text == 'D/R':
                 self.toggle_trig_mode()
             elif button_text in ['MC', 'MR', 'M+', 'M-', 'MS']:
@@ -367,7 +442,7 @@ class Calculator:
     def is_valid_expression(self, expr):
         """Check if expression is mathematically valid"""
         try:
-            # Quick check for balanced parentheses
+            # Check for balanced parentheses
             if expr.count('(') != expr.count(')'):
                 return False
                 
@@ -411,6 +486,9 @@ class Calculator:
             # Replace ^ with ** for power operation
             expression = expression.replace('^', '**')
             
+            # Handle empty parentheses cases
+            expression = expression.replace('()', '(0)')
+            
             # Check for potentially dangerous operations
             if '__' in expression or ';' in expression:
                 raise ValueError("Invalid expression")
@@ -435,8 +513,21 @@ class Calculator:
 
     def calculate_result(self):
         try:
-            self.validate_before_calculation()
             expression = self.display.get()
+            if not expression:
+                raise ValueError("Empty expression")
+                
+            # Add closing parentheses if needed
+            open_paren = expression.count('(')
+            close_paren = expression.count(')')
+            while open_paren > close_paren:
+                expression += ')'
+                close_paren += 1
+                
+            # Validate the expression
+            if not self.is_valid_expression(expression):
+                raise ValueError("Invalid expression format")
+                
             expression = expression.replace('×', '*').replace('÷', '/')
             
             result = self.safe_eval(expression)
@@ -473,11 +564,10 @@ class Calculator:
     
     def handle_trig_function(self, func):
         if self.trig_mode == "deg":
-            # Convert degrees to radians for calculation
             self.display.insert(tk.END, f'math.{func}(math.radians(')
         else:
             self.display.insert(tk.END, f'math.{func}(')
-    
+        
     def handle_factorial(self):
         try:
             current = self.display.get()
@@ -488,12 +578,15 @@ class Calculator:
             
             if num < 0:
                 raise ValueError("Factorial of negative number")
-            if not float(num).is_integer():
-                raise ValueError("Factorial requires integer")
-            if num > 1000:  # Prevent extremely large calculations
+            if num > 1000:
                 raise ValueError("Number too large for factorial")
                 
-            result = math.factorial(int(num))
+            # Use gamma function for non-integers
+            if not float(num).is_integer():
+                result = math.gamma(num + 1)
+            else:
+                result = math.factorial(int(num))
+                
             self.display.delete(0, tk.END)
             self.display.insert(0, str(result))
             
@@ -502,24 +595,18 @@ class Calculator:
         except Exception:
             self.show_error("Factorial calculation failed")
     
-    def handle_reciprocal(self):
-        try:
-            current = self.display.get()
-            if current:
-                num = self.safe_eval(current)
-                if num != 0:
-                    result = 1 / num
-                    self.display.delete(0, tk.END)
-                    self.display.insert(0, str(result))
-                else:
-                    raise ZeroDivisionError("Cannot divide by zero")
-        except:
-            self.display.delete(0, tk.END)
-            self.display.insert(0, "Error")
-    
     def toggle_trig_mode(self):
         self.trig_mode = "deg" if self.trig_mode == "rad" else "rad"
         self.mode_label.config(text=f"Mode: {self.trig_mode.upper()}")
+        
+        # Flash the mode label to draw attention
+        self.mode_label.config(bg='yellow')
+        self.root.after(200, lambda: self.mode_label.config(bg=self.root.cget('bg')))
+        
+        # Force tooltip updates by hiding existing ones
+        for func in ['sin', 'cos', 'tan']:
+            if hasattr(self, f'{func}_tooltip'):
+                getattr(self, f'{func}_tooltip').hide_tooltip()
     
     def handle_memory_operations(self, operation):
         try:
