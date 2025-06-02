@@ -1,3 +1,4 @@
+import re
 import tkinter as tk
 import math
 from tkinter import messagebox
@@ -362,8 +363,14 @@ class Calculator:
                 '|x|': 'abs('
             }
             
+            
             if button_text in function_map:
-                self.display.insert(tk.END, function_map[button_text])
+                if button_text in ['log', 'ln']:
+                    # For log/ln buttons, we'll handle them specially
+                    base = '10' if button_text == 'log' else 'natural'
+                    self.handle_logarithm(base)
+                else:
+                    self.display.insert(tk.END, function_map[button_text])
                 return
                 
             if button_text.isdigit() or button_text == '.':
@@ -424,8 +431,22 @@ class Calculator:
         # Handle decimal point
         if char == '.':
             current = self.display.get()
-            # Check if current number already has a decimal point
-            if '.' not in current.split()[-1] if current else True:
+            # Split the expression into tokens to check for existing decimal in current number
+            tokens = []
+            current_token = ""
+            for c in current:
+                if c in '+-*/%()^':
+                    if current_token:
+                        tokens.append(current_token)
+                        current_token = ""
+                    tokens.append(c)
+                else:
+                    current_token += c
+            if current_token:
+                tokens.append(current_token)
+            
+            # Check if the last token (current number) already has a decimal point
+            if tokens and '.' not in tokens[-1]:
                 self.display.insert(tk.END, char)
         else:
             self.display.insert(tk.END, char)
@@ -435,6 +456,24 @@ class Calculator:
         if self.display.get() == "Error":
             self.clear_display()
 
+        current = self.display.get()
+        
+        # Handle implicit multiplication for parentheses
+        if operator == '(' and current:
+            last_char = current[-1]
+            if last_char.isdigit() or last_char in ')!π':
+                # Insert multiplication before opening parenthesis
+                self.display.insert(tk.END, '*(')
+                return
+        elif operator == ')' and current:
+            # Check if we need to add closing parenthesis for functions
+            open_count = current.count('(')
+            close_count = current.count(')')
+            if open_count > close_count:
+                # Just add the closing parenthesis
+                self.display.insert(tk.END, ')')
+                return
+        
         # If last result is displayed and user presses an operator, use it as first operand
         if self.last_result and self.display.get() == self.last_result:
             self.display.insert(tk.END, operator)
@@ -482,7 +521,9 @@ class Calculator:
             'exp': math.exp,
             'abs': abs,
             'pi': math.pi,
-            'e': math.e
+            'e': math.e,
+            'radians': math.radians,
+            're': re
         }
         
         try:
@@ -496,6 +537,33 @@ class Calculator:
             if '__' in expression or ';' in expression:
                 raise ValueError("Invalid expression")
                 
+            # Handle degree mode for trigonometric functions
+            if self.trig_mode == "deg":
+                # This pattern matches trig functions with their arguments
+                pattern = r'(math\.)?(sin|cos|tan)\((.*?)\)'
+                
+                def degree_converter(match):
+                    math_prefix = match.group(1) or ''
+                    func = match.group(2)
+                    arg = match.group(3)
+                    # If the argument already has radians conversion, leave it as is
+                    if 'math.radians(' in arg:
+                        return f"{math_prefix}{func}({arg})"
+                    return f"{math_prefix}{func}(math.radians({arg}))"
+                
+                # Apply the conversion to all trigonometric functions
+                while True:
+                    new_expression = re.sub(pattern, degree_converter, expression)
+                    if new_expression == expression:
+                        break
+                    expression = new_expression
+            
+            # Add math. prefix to known functions if not already present
+            known_funcs = ['sin', 'cos', 'tan', 'log', 'log10', 'sqrt', 'exp', 'abs']
+            for func in known_funcs:
+                # Replace standalone function calls (not preceded by math. or a letter)
+                expression = re.sub(r'(?<![a-zA-Z.])' + func + r'(?=\()', f'math.{func}', expression)
+            
             # Compile first to check syntax
             code = compile(expression, '<string>', 'eval')
             
@@ -533,6 +601,9 @@ class Calculator:
                 
             expression = expression.replace('×', '*').replace('÷', '/')
             
+            # Handle implicit multiplication before evaluation
+            expression = self.handle_implicit_multiplication(expression)
+            
             result = self.safe_eval(expression)
             
             # Format result
@@ -547,6 +618,28 @@ class Calculator:
             
         except Exception as e:
             self.show_error(str(e))
+    
+    def handle_implicit_multiplication(self, expr):
+        """Add multiplication signs for implicit multiplication cases"""
+        # Handle cases like 2(3) -> 2*(3) and 2sin(90) -> 2*sin(90)
+        new_expr = []
+        for i in range(len(expr)):
+            new_expr.append(expr[i])
+            if i < len(expr)-1:
+                # Check if we need to insert multiplication
+                current = expr[i]
+                next_char = expr[i+1]
+                
+                # Cases where we need multiplication:
+                # 1) digit followed by '(' or function name
+                # 2) ')' followed by digit or '(' or function name
+                # 3) constant (π) followed by digit or '(' or function name
+                if (current.isdigit() and (next_char == '(' or next_char.isalpha())) or \
+                (current == ')' and (next_char.isdigit() or next_char == '(' or next_char.isalpha())) or \
+                (current == 'π' and (next_char.isdigit() or next_char == '(' or next_char.isalpha())):
+                    new_expr.append('*')
+        
+        return ''.join(new_expr)
     
     def clear_display(self):
         self.display.delete(0, tk.END)
@@ -566,6 +659,13 @@ class Calculator:
                 self.display.insert(0, '-')
     
     def handle_trig_function(self, func):
+        """Handle trigonometric function input based on current mode"""
+        current = self.display.get()
+        
+        # If there's already content and it ends with a number, add multiplication
+        if current and current[-1].isdigit():
+            self.display.insert(tk.END, '*')
+        
         if self.trig_mode == "deg":
             self.display.insert(tk.END, f'math.{func}(math.radians(')
         else:
@@ -610,17 +710,87 @@ class Calculator:
             self.display.insert(tk.END, ')**(1/')
 
     def toggle_trig_mode(self):
+        """Toggle between degree and radian mode for trigonometric functions"""
         self.trig_mode = "deg" if self.trig_mode == "rad" else "rad"
         self.mode_label.config(text=f"Mode: {self.trig_mode.upper()}")
         
-        # Flash the mode label to draw attention
+        # Visual feedback
         self.mode_label.config(bg='yellow')
         self.root.after(200, lambda: self.mode_label.config(bg=self.root.cget('bg')))
         
-        # Force tooltip updates by hiding existing ones
+        # Update all trigonometric function tooltips
         for func in ['sin', 'cos', 'tan']:
             if hasattr(self, f'{func}_tooltip'):
-                getattr(self, f'{func}_tooltip').hide_tooltip()
+                # Update the tooltip function to use current mode
+                tooltip = getattr(self, f'{func}_tooltip')
+                tooltip.text_func = lambda f=func: f"{f} - Current mode: {self.trig_mode.upper()}"
+                tooltip.hide_tooltip()  # Force tooltip to update next time it's shown
+
+    def handle_logarithm(self, base='natural'):
+        """Handle logarithmic calculations with proper error checking"""
+        try:
+            current = self.display.get()
+            if not current:
+                raise ValueError("No input for logarithm")
+                
+            value = self.safe_eval(current)
+            
+            if value <= 0:
+                raise ValueError("Logarithm is only defined for positive numbers")
+                
+            if base == 'natural':
+                result = math.log(value)
+            else:  # base 10
+                result = math.log10(value)
+            
+            # Format result to show 5 decimal places for logarithmic results
+            self.display.delete(0, tk.END)
+            self.display.insert(0, f"{result:.5f}".rstrip('0').rstrip('.') if '.' in f"{result:.5f}" else str(result))
+            
+            # Add to history
+            log_type = "ln" if base == 'natural' else "log"
+            self.history.append(f"{log_type}({current}) = {result}")
+            self.update_history_display()
+            self.last_result = str(result)
+            
+        except ValueError as ve:
+            self.show_error(str(ve))
+        except Exception:
+            self.show_error("Logarithm calculation failed")
+
+    
+
+    def handle_reciprocal(self):
+        try:
+            current = self.display.get()
+            if not current:
+                raise ValueError("No input for reciprocal")
+                
+            # Evaluate the current expression
+            value = self.safe_eval(current)
+            
+            # Calculate reciprocal
+            if value == 0:
+                raise ValueError("Cannot divide by zero")
+                
+            result = 1 / value
+            
+            # Format the result nicely
+            if isinstance(result, float):
+                result = round(result, 10) if not result.is_integer() else int(result)
+            
+            self.display.delete(0, tk.END)
+            self.display.insert(0, str(result))
+            
+            # Add to history
+            self.history.append(f"1/({current}) = {result}")
+            self.update_history_display()
+            self.last_result = str(result)
+            
+        except ValueError as ve:
+            self.show_error(str(ve))
+        except Exception:
+            self.show_error("Reciprocal calculation failed")
     
     def handle_memory_operations(self, operation):
         try:
