@@ -181,7 +181,7 @@ class Calculator:
             ('2', '2', 8, 1),
             ('3', '3', 8, 2),
             ('+', 'add (+)', 9, 3),
-            ('x²', 'square', 6, 5),
+            ('ⁿ√', 'nth root (r)', 6, 5),
             ('|x|', 'absolute value', 8, 5),
             
             ('0', '0', 9, 1),
@@ -217,7 +217,7 @@ class Calculator:
             elif text in ['MC', 'MR', 'M+', 'M-', 'MS']:
                 bg = button_colors['memory']
             elif text in ['sin', 'cos', 'tan', 'log', 'ln', '√', 'xʸ', 'n!', 'π', 
-                        'Mod', '10ˣ', 'eˣ', 'x²', '1/x', '|x|', 'D/R']:
+                        'Mod', '10ˣ', 'eˣ', 'x²', '1/x', '|x|','ⁿ√', 'D/R']:
                 bg = button_colors['scientific']
             else:
                 bg = button_colors['special']
@@ -280,6 +280,7 @@ class Calculator:
             'p': 'π',
             'e': 'eˣ',
             'd': 'D/R',
+            'r': 'ⁿ√',
             'percent': 'Mod'
         }
         
@@ -400,6 +401,8 @@ class Calculator:
                 self.toggle_trig_mode()
             elif button_text in ['MC', 'MR', 'M+', 'M-', 'MS']:
                 self.handle_memory_operations(button_text)
+            elif button_text == 'ⁿ√':
+                self.handle_nth_root()
             
             # Update current expression
             self.current_expression = self.display.get()
@@ -595,6 +598,17 @@ class Calculator:
         except Exception:
             self.show_error("Factorial calculation failed")
     
+
+    def handle_nth_root(self):
+        current = self.display.get()
+        if not current:
+            # If empty, just insert the root function
+            self.display.insert(tk.END, '**(1/')
+        else:
+            # If there's content, wrap it in parentheses and add root
+            self.display.insert(0, '(')
+            self.display.insert(tk.END, ')**(1/')
+
     def toggle_trig_mode(self):
         self.trig_mode = "deg" if self.trig_mode == "rad" else "rad"
         self.mode_label.config(text=f"Mode: {self.trig_mode.upper()}")
