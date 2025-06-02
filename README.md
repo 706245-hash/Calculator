@@ -1,6 +1,6 @@
 # Scientific Calculator with Tkinter
 
-![Calculator Screenshot](calculator/calc.jpg) 
+![Calculator Screenshot](calculator/assets/calc.png) 
 *(Calculator screenshot)*
 
 A feature-rich scientific calculator built with Python's Tkinter GUI toolkit, offering both basic and advanced mathematical operations with an intuitive interface.
